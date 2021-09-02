@@ -7,6 +7,13 @@
 #include <QProcess>
 #include <QDir>
 #include <QInputDialog>
+#include <QJsonDocument>
+#include <QJsonArray>
+#include <QJsonObject>
+#include <stdio.h>
+#include <iostream>
+#include <stdlib.h>
+using namespace std;
 
 Widget::Widget(QWidget *parent) :
     QWidget(parent),
@@ -21,26 +28,40 @@ Widget::Widget(QWidget *parent) :
  * @brief Widget::addItems
  */
 void Widget::addItems() {
-    QPushButton *btn0 = new QPushButton("搜狗输入法");
-    QPushButton *btn1 = new QPushButton("微信");
-    QPushButton *btn2 = new QPushButton("QQ");
-    QPushButton *btn3 = new QPushButton("远程连接");
-    QPushButton *btn4 = new QPushButton("全部配置");
 
-    items.push_back(btn0);
-    items.push_back(btn1);
-    items.push_back(btn2);
-    items.push_back(btn3);
-    items.push_back(btn4);
-
-    //
-    QVector<QString> btnPath({"sougou.sh", "wechat.sh", "qq.sh", "remoteSSH.sh", "all"});
-
-    for(int i = 0; i < items.size(); ++i) {
-        itemToPath[items[i]->text()] = btnPath[i];
-        items[i]->setFixedSize(105, 35);
-        connect(items[i], SIGNAL(clicked()), this, SLOT(clickItems()));
+    QFile file("/home/linuxy/Lact/shell/config.json");
+    if(!file.open(QIODevice::ReadOnly)) {
+        qDebug() << "File open error";
     }
+
+    QByteArray data=file.readAll();
+    file.close();
+
+    QJsonParseError jsonError;
+    QJsonDocument document = QJsonDocument::fromJson(data, &jsonError);
+
+    // 解析未发生错误
+    if (!document.isNull() && (jsonError.error == QJsonParseError::NoError)) {
+        if (document.isObject()) { // JSON 文档为数组
+            QJsonObject object = document.object();  // 转化为对象
+            object.begin();
+            for(auto iter = object.begin(); iter != object.end(); ++iter) {
+                qDebug()<<iter.key()<<endl;
+                qDebug()<<iter.value().toString()<<endl;
+                QPushButton *btn = new QPushButton(iter.key());
+                btn->setFixedSize(105, 35);
+                items.push_back(btn);
+                itemToPath[iter.key()] = iter.value().toString();
+                connect(btn, SIGNAL(clicked()), this, SLOT(clickItems()));
+            }
+        }
+    }
+
+    QPushButton *btn = new QPushButton("全部配置");
+    itemToPath["全部配置"] = "./shell/all.sh";
+    btn->setFixedSize(105, 35);
+    items.push_back(btn);
+    connect(btn, SIGNAL(clicked()), this, SLOT(clickItems()));
 }
 
 void Widget::initUI() {
@@ -108,17 +129,28 @@ void Widget::clickItems() {
     edit->clear();
     QPushButton *tmpBtn = qobject_cast<QPushButton*>(sender());
     QString path= itemToPath[tmpBtn->text()];
-    QString cmd = QString("/bin/bash ../") + path;
+    QString cmd = QString("/bin/bash /home/linuxy/Lact/shell/") + path;
 
-    QProcess process;
 
-    process.start(cmd);
-    //等待命令执行结束
-    process.waitForFinished();
-    //获取命令执行的结果
-    QByteArray output = process.readAllStandardOutput();
-    QByteArray err = process.readAllStandardError();
-    edit->insertPlainText(QString(output));
+        FILE* fp = popen(cmd.toLocal8Bit().data(), "r");
+        if (nullptr != fp) {
+            char buf[1024] = {0};
+            char result[2000] = {0};
+
+            while (fgets(buf, sizeof(buf), fp))
+            {
+                strcat(result, buf);
+                if (strlen(result) > sizeof(buf))
+                {
+                    break;
+                }
+                edit->insertPlainText(QString(buf));
+            }
+            //edit->insertPlainText(QString(output));
+            //m_pEdtResult->setPlainText(tr("%1").arg(result));
+            pclose(fp);         // 记得释放资源
+            fp = nullptr;
+        }
 }
 
 Widget::~Widget()
